@@ -49,7 +49,7 @@ def twist_to_matrix(S):
     T[:3, 3] = S[3:]
     return T
 
-# Screw axes and Home Configuration
+# screw axes and Home Configuration
 S1 = np.array([0, 0, 1, 0, 0, 0])
 S2 = np.array([0, 0, 1, 0, -1, 0])
 S3 = np.array([0, 0, 1, 0, -2, 0])
@@ -61,17 +61,18 @@ M = np.array([
     [0, 0, 0, 1.0]
 ])
 
+# calculate POE
 def calculate_poe_fk(q):
     T1 = expm(twist_to_matrix(S1) * q[0])
     T2 = expm(twist_to_matrix(S2) * q[1])
     T3 = expm(twist_to_matrix(S3) * q[2])
     return T1 @ T2 @ T3 @ M
 
+# linear interpolation (to make simulation look better)
 def linear_interp(start_val, end_val, t, duration):
     t_norm = np.clip(t / duration, 0.0, 1.0)
     return start_val + (end_val - start_val) * t_norm
 
-# 3. MuJoCo Simulation Loop
 def main():
     model = mujoco.MjModel.from_xml_string(XML)
     data = mujoco.MjData(model)
@@ -87,27 +88,27 @@ def main():
             t = time.time() - start_time
             
             if t <= 1.0:
-                # Move to goal at constant speed
+                # move to goal at constant speed
                 q_current = linear_interp(q_home, q_goal, t, 1.0)
                 
             elif t <= 2.0:
-                # Wait at goal
+                # wait at goal
                 q_current = q_goal
                 
             elif t <= 3.0:
-                # Return to home at constant speed
+                # return to home at constant speed
                 t_return = t - 2.0 
                 q_current = linear_interp(q_goal, q_home, t_return, 1.0)
                 
             else:
-                # Stop the simulation
+                # stop the simulation
                 print("Sequence complete. Closing viewer.")
                 break 
                 
-            # Apply the calculated joint angles
+            # apply the calculated joint angles
             data.qpos[:] = q_current
             
-            # Visualization 
+            # visualization 
             mujoco.mj_kinematics(model, data)
             
             T_curr = calculate_poe_fk(q_current)
