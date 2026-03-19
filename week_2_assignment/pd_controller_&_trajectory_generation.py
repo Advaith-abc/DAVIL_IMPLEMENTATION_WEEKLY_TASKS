@@ -2,6 +2,7 @@ import numpy as np
 import mujoco
 import mujoco.viewer
 from scipy.spatial.transform import Rotation as R, Slerp
+import matplotlib.pyplot as plt
 
 MODEL_PATH    = "assets/panda/panda.xml"
 end_effector_name = "hand"
@@ -213,6 +214,46 @@ def calc_torques(model, data, pos_des, vel_des, quat_des, omega_des):
     tau = J.T @ F + data.qfrc_bias[:7]
     return tau  # (7,)
 
+def plot_trajectory_results(log_t, log_pos_des, log_pos_cur, log_err_pos, log_err_ori, log_tau):
+    t = np.array(log_t)
+    p_des = np.array(log_pos_des)
+    p_cur = np.array(log_pos_cur)
+    p_err = np.array(log_err_pos)
+
+    # Reduced to 2 subplots, adjusted figsize
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    
+    # 1. Position tracking
+    axs[0].plot(t, p_des[:, 0], 'r--', alpha=0.7, label='X Desired')
+    axs[0].plot(t, p_cur[:, 0], 'r', label='X Actual')
+    axs[0].plot(t, p_des[:, 1], 'g--', alpha=0.7, label='Y Desired')
+    axs[0].plot(t, p_cur[:, 1], 'g', label='Y Actual')
+    axs[0].plot(t, p_des[:, 2], 'b--', alpha=0.7, label='Z Desired')
+    axs[0].plot(t, p_cur[:, 2], 'b', label='Z Actual')
+    axs[0].set_ylabel('Position (m)')
+    axs[0].set_title('Task Space Position Tracking')
+    axs[0].legend(loc='upper right', ncol=3, fontsize=9)
+    axs[0].grid(True, alpha=0.3)
+
+    # 2. Position Error
+    axs[1].plot(t, p_err[:, 0], 'r', label='X Error')
+    axs[1].plot(t, p_err[:, 1], 'g', label='Y Error')
+    axs[1].plot(t, p_err[:, 2], 'b', label='Z Error')
+    axs[1].set_ylabel('Error (m)')
+    axs[1].set_xlabel('Time (s)')
+    axs[1].set_title('Cartesian Position Error')
+    axs[1].legend(loc='upper right', ncol=3, fontsize=9)
+    axs[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    
+    # Save the figure before showing it
+    save_path = "trajectory_tracking_results.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"\nSaved trajectory plot to -> {save_path}")
+
+    plt.show()
+
 def main():
     model = mujoco.MjModel.from_xml_path(MODEL_PATH)
     data  = mujoco.MjData(model)
@@ -234,6 +275,15 @@ def main():
     mujoco.mj_resetData(model, data)
     data.qpos[:7] = WAYPOINTS_JOINT[0]
     mujoco.mj_forward(model, data)
+    
+    ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, end_effector_name)
+    
+    log_t = []
+    log_pos_des = []
+    log_pos_cur = []
+    log_err_pos = []
+    log_err_ori = []
+    log_tau = []
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         t = 0.0
@@ -246,6 +296,16 @@ def main():
             tau = calc_torques(model, data, pos_des, vel_des, quat_des, omega_des)
             data.ctrl[:7] = tau
             data.ctrl[7:] = 0.0  
+            
+            log_t.append(t)
+            log_pos_des.append(pos_des.copy())
+            pos_cur = data.xpos[ee_id].copy()
+            log_pos_cur.append(pos_cur)
+            log_err_pos.append(pos_des - pos_cur)
+            
+            ori_err_vec = orientation_error(quat_des, data.xquat[ee_id].copy())
+            log_err_ori.append(np.linalg.norm(ori_err_vec))
+            log_tau.append(tau.copy())
 
             mujoco.mj_step(model, data)
             viewer.sync()
@@ -254,6 +314,8 @@ def main():
             if t > total_time + 1.0:  
                 print("Trajectory complete.")
                 break
+                
+    plot_trajectory_results(log_t, log_pos_des, log_pos_cur, log_err_pos, log_err_ori, log_tau)
 
 if __name__ == "__main__":
     main()
